@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+<title>README.html</title>
+
+</head>
+
+<body>
+
+<h1 id="caliber-utils">caliber-utils</h1>
+<p>This is a companion utility to <a
+href="https://calibre-ebook.com/">Calibre</a>. Its makes adding books to
+Calibre and converting them to mobi (the Kindle-friendly format) easy by
+allowing you to drop (copy) files containing epubs to a monitored folder
+and then handling the conversion to mobi automatically.</p>
+<p>The utility consists of:</p>
+<ul>
+<li>inotify_calibre.sh – a Bash script that uses inotify to monitor a
+folder for new epubs, or mobi files</li>
+<li>calibre-utils/main.py – a Python script invoked by
+inotify_calibre.sh when one or more books have been put in the watched
+folder to check if the book is already in Calibre - if not, it adds the
+book – and then converts it to mobi and adds the mobi format (this has
+no effect if a mobi version of the book is already in Calibre).</li>
+</ul>
+<p>The Python script takes the following arguments:</p>
+<ul>
+<li><code>-f</code> The name of the file to add to Calibre and convert
+(no path, just the name and extension)</li>
+<li><code>-d</code> The absolute path to the directory to monitor
+(defaults to <code>$HOME/Downloads/books/in-books</code></li>
+</ul>
+<p>After processing each input file, the Python script moves it to
+<code>$HOME/Downloads/books/processed</code></p>
+<p>The Python programs sends desktop notifications to the host system
+via <code>pianotifier</code> (installed as
+<code>py-notifier</code>):</p>
+<ul>
+<li>on errors (if the input folder does not contain a file to process or
+an instance of Calibre is already running, the book cannot be added to
+Calibre, etc.)</li>
+<li>on success (a book has been added and converted or only converted if
+it was already present in Calibre)</li>
+</ul>
+<p>The monitoring process continues in the background until you kill the
+process either directly or by restarting the computer.</p>
+<p>Pre-requisites: - Calibre (e-book reader and db) - Python 3.10+ -
+inotify-tools 3.22.6.0-1+ - virtualenv (run “pip install
+virtualenv”)</p>
+<h2 id="installation">Installation</h2>
+<ol type="1">
+<li>Install the prerequisites – see above</li>
+<li>Clone the repository containing caliber-utils.</li>
+<li>Install the dependencies as listed in requirements.txt in the
+virtual environment (in the cloned directory, run
+<code>pip install -r requirements.txt</code>)</li>
+<li>Make inotify_calibre.sh executable
+(<code>chmod + {cloned_dir}/inotify_calibre.sh</code>)</li>
+<li>Create (if necessary) the directory for inotify to monitor
+(<code>$HOME/Downloads/books/in-books</code>) as well as the directory
+to which the utility is to copy the input files after processing
+(<code>$HOME/Downloads/books/processed</code>)</li>
+<li>Update variables in inotify_calibre.sh – see below</li>
+</ol>
+<h3 id="set-variables-in-inotify_calibre.sh">Set Variables in
+inotify_calibre.sh</h3>
+<p>Here are the variables to set, although the paths must be appropriate
+to your system:</p>
+<ul>
+<li><code>activate_path="$HOME/.virtualenvs/calibre-utils/bin/activate"</code></li>
+<li><code>python_pkg="$HOME/scripts/calibre-utils/main.py"</code></li>
+<li><code>python_log="$HOME/Downloads/books/processed/inotify.log"</code></li>
+<li><code>default_incoming_books_dir="$HOME/Downloads/books/in-books"</code></li>
+</ul>
+<h2 id="using-caliber-utils">Using caliber-utils</h2>
+<p>After installation, invoke the utility in a Bash terminal as
+follows:</p>
+<pre><code>$ ~/{path_to_cloned_dir)/inotify_calibre.sh </code></pre>
+<h2 id="status">Status</h2>
+<p>24 Dec 2022 First draft, tested locally and working</p>
+<h2 id="copyright">Copyright</h2>
+<p>Copyright Adam Bukolt</p>
+<p>Note that the copyright refers to the code and scripts in this
+repository and expressly not to any third-party dependencies or the
+Calibre application.</p>
+<h2 id="license">License</h2>
+<p>MIT</p>
+<p>Note that separate licenses apply to third-party dependencies and the
+Calibre application.</p>
+
+</body>
+</html>
