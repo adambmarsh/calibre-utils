@@ -307,8 +307,8 @@ class CalibreHandler(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="This program processes files added to a directory watched by "
-                                                 "inotify, adding .epub files to Calibre and, if necessary converting "
-                                                 "them to .mobi, then adding the .mobi format. ")
+                                                 "inotify, adding the input file(s) to Calibre and, if necessary, "
+                                                 "converting  them to .mobi, then adding the .mobi format. ")
     parser.add_argument("-d", "--directory", help="Full path to the watched directory.",
                         type=str,
                         dest='watched_dir',
