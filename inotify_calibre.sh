@@ -15,11 +15,9 @@ else
     target_dir=$default_incoming_books_dir
 fi
 
-inotifywait -m -e close_write \
-   $target_dir |
-while read dir op file
+inotifywait -m -e close_write $target_dir |
+while read dir op file;
+do         
     # echo "dir=$dir op=$op file=$file"
-    do source $activate_path && \
-        python $python_pkg -d $dir -f """$file""" > $python_log && \
-        deactivate
+    source $activate_path && python $python_pkg -d $dir -f """$file""" > $python_log && deactivate
 done &
