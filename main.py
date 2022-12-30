@@ -159,7 +159,7 @@ class CalibreHandler(object):
         if not work_title:
             return ""
 
-        rx_pattern = re.compile('^[\[][a-zA-Z0-9 -]+[\]]')  # NOQA
+        rx_pattern = re.compile('[\[(][a-zA-Z0-9 -]+[\])]')  # NOQA
         if not re.search(rx_pattern, work_title):
             return work_title
 
@@ -190,12 +190,12 @@ class CalibreHandler(object):
             splitter_str = " - "
 
         if splitter_str:
-            return working_title[: working_title.rfind(splitter_str)]
+            return working_title[: working_title.rfind(splitter_str)].strip()
 
         if re.search(r'[(].*[)] *$', working_title):
             return re.sub(r'[(].*[)] *$', "", working_title).strip()
 
-        return working_title
+        return working_title.strip()
 
     @staticmethod
     def get_file_base_name_and_extension(file_name=""):
@@ -219,6 +219,14 @@ class CalibreHandler(object):
                 urgency='normal'
             ).send()
             return 0
+
+        Notification(
+            title=summary,
+            description=f"inotify_calibre: Processing  file {repr(in_file)} ...",
+            icon_path='',  # On Windows .ico is required, on Linux - .png
+            duration=5,  # Duration in seconds
+            urgency='normal'
+        ).send()
 
         file_base_name, extension_str = self.get_file_base_name_and_extension(file_name=in_file)
 
