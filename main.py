@@ -206,62 +206,44 @@ class CalibreHandler(object):
 
         return file_name, file_name
 
-    def process_in_book(self, in_file=""):
-        summary = "calibre-utils"
-        abs_file_path = os.path.abspath(os.path.join(self.watched_dir, in_file))
-
-        if not os.path.exists(abs_file_path):
-            Notification(
-                title=summary,
-                description=f"The file {repr(in_file)} does not exist.",
-                icon_path='',  # On Windows .ico is required, on Linux - .png
-                duration=5,  # Duration in seconds
-                urgency='normal'
-            ).send()
-            return 0
-
+    @staticmethod
+    def _post_notification(in_summary="calibre_utils", in_description=""):
         Notification(
-            title=summary,
-            description=f"inotify_calibre: Processing  file {repr(in_file)} ...",
+            title=in_summary,
+            description=in_description,
             icon_path='',  # On Windows .ico is required, on Linux - .png
             duration=5,  # Duration in seconds
             urgency='normal'
         ).send()
 
+    def process_book(self, in_file=""):
+        summary = "calibre-utils"
+        abs_file_path = os.path.abspath(os.path.join(self.watched_dir, in_file))
+
+        if not os.path.exists(abs_file_path):
+            self._post_notification(summary, f"The file {repr(in_file)} does not exist.")
+            return 0
+
+        self._post_notification(summary, f"inotify_calibre: Processing  file {repr(in_file)} ...")
+
         file_base_name, extension_str = self.get_file_base_name_and_extension(file_name=in_file)
 
         if not extension_str or extension_str == file_base_name:
-            Notification(
-                title=summary,
-                description=f"Received file {repr(in_file)}, cannot process a file without extension.",
-                icon_path='',  # On Windows .ico is required, on Linux - .png
-                duration=5,  # Duration in seconds
-                urgency='normal'
-            ).send()
+            self._post_notification(summary, f"Received file {repr(in_file)}, cannot process a file without extension.")
             return 0
 
         title = self.extract_title(file_base_name)
 
         if not title:
-            Notification(
-                title=summary,
-                description=f"Unable to extract book title from the received file name {repr(in_file)}, exiting.",
-                icon_path='',  # On Windows .ico is required, on Linux - .png
-                duration=5,  # Duration in seconds
-                urgency='normal'
-            ).send()
+            self._post_notification(
+                summary,
+                f"Unable to extract book title from the received file name {repr(in_file)}, exiting.")
             return 0
 
         list_entry = self.list_db(title)
 
         if list_entry.id == -1:
-            Notification(
-                title=summary,
-                description=list_entry.title,
-                icon_path='',  # On Windows .ico is required, on Linux - .png
-                duration=5,  # Duration in seconds
-                urgency='normal'
-            ).send()
+            self._post_notification(summary, list_entry.title)
             return 0
 
         # If book not in DB, add it:
@@ -269,13 +251,7 @@ class CalibreHandler(object):
             res_entry = self.add_book(abs_file_path)
 
             if res_entry.id == -1:
-                Notification(
-                    title=summary,
-                    description=res_entry.title,
-                    icon_path='',  # On Windows .ico is required, on Linux - .png
-                    duration=5,  # Duration in seconds
-                    urgency='normal'
-                ).send()
+                self._post_notification(summary, res_entry.title)
                 return 0
 
             list_entry = book_entry(id=res_entry.id, title=title, author="")
@@ -284,13 +260,9 @@ class CalibreHandler(object):
         convert_res = self.convert_book(org_book=in_file, dest_format="mobi" if extension_str == "epub" else "")
 
         if not convert_res:
-            Notification(
-                title=summary,
-                description=f"Unable to convert the book in file name {repr(in_file)} to mobi, exiting.",
-                icon_path='',  # On Windows .ico is required, on Linux - .png
-                duration=5,  # Duration in seconds
-                urgency='normal'
-            ).send()
+            self._post_notification(
+                summary,
+                f"Unable to convert the book in file name {repr(in_file)} to mobi, exiting.")
             return 0
 
         # Add the new format to the book in Calibre:
@@ -299,13 +271,9 @@ class CalibreHandler(object):
         processed_path = re.sub(r'in-books', 'processed', self.watched_dir)
 
         if res_entry.id > 0:
-            Notification(
-                title=summary,
-                description=f"{repr(in_file)} is in Calibre and converted to mobi, moving it to {processed_path}",
-                icon_path='',  # On Windows .ico is required, on Linux - .png
-                duration=5,  # Duration in seconds
-                urgency='normal'
-            ).send()
+            self._post_notification(
+                summary,
+                f"{repr(in_file)} is in Calibre and converted to mobi, moving it to {processed_path}")
 
         # Save original file:
         os.rename(abs_file_path, os.path.abspath(os.path.join(processed_path, in_file)))
@@ -334,7 +302,7 @@ if __name__ == '__main__':
         exit(1)
 
     ch = CalibreHandler(watched_dir=args.watched_dir)
-    res = ch.process_in_book(in_file=args.in_file)
+    res = ch.process_book(in_file=args.in_file)
 
     if res > 0:
         exit(0)
