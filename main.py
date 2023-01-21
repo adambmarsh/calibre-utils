@@ -4,6 +4,7 @@ import re
 from subprocess import PIPE, run
 from collections import namedtuple
 from pynotifier import Notification  # NOQA
+# from shlex import split
 
 book_entry = namedtuple("book_entry", "id title author")
 
@@ -16,6 +17,17 @@ class CalibreHandler(object):
         self._watched_dir = None
 
         self.watched_dir = watched_dir
+
+        self._books = None
+        self.books = self.get_all_db_books()
+
+    @property
+    def books(self):
+        return self._books
+
+    @books.setter
+    def books(self, in_books):
+        self._books = in_books
 
     @property
     def watched_dir(self):
@@ -87,7 +99,13 @@ class CalibreHandler(object):
         return re.sub(re.compile(wanted_str), "", converted_res).strip() or ""
 
     @staticmethod
-    def assemble_entries(in_entries=None):
+    def assemble_entries(in_title, in_entries=None):
+        """
+
+        :in_title: A string representing the title f the book we are to add to the DB
+        :param in_entries: A list of strings representing entries in the DB: id, title, author
+        :return: A list of dictionaries (id, title, author) that match `search_str`
+        """
         if not in_entries:
             return list()
 
@@ -107,8 +125,8 @@ class CalibreHandler(object):
             if re_match:
                 ent = dict(entry_model)
                 ent['id'] = w_ent[:re_match.end()].strip()
-                ent_rest = re.split(r' {2,}', w_ent[re_match.end():])
-                ent['author'] = ent_rest[-1]
+                ent_rest = w_ent[re_match.end():].strip()
+                ent['author'] = re.split(r' {2,}', ent_rest)[-1]
                 ent['title'] = next(iter(ent_rest), "")
                 entries.append(ent)
                 continue
@@ -121,38 +139,66 @@ class CalibreHandler(object):
 
         return ["  ".join([v for v in ent.values()]) for ent in entries]
 
-    def get_matching_result(self, in_strs=None, to_match=""):
-        if not to_match or not in_strs:
-            return in_strs
+    def matching_book(self, title=""):
+        default_ret = book_entry(id=-1, title="", author="")
 
-        to_match = re.sub(r'[:_]', '', to_match)
-        for res_str in self.assemble_entries(in_strs):
-            use_str = re.sub(r'[:_]+', '', res_str)
-            if to_match in use_str:
+        if not title:
+            return default_ret
 
-                m = re.search(r'[0-9]+', use_str)
-                b_id = int(use_str[m.start(): m.end()] if m else "0")
-                b_author = re.split(r' {2,}', res_str)[-1]
-                return b_id, to_match, b_author
+        for book in self.books:
+            if title in re.sub(r':', '', book.get('title', '')):
+                return book_entry(id=int(book.get('id', '')),
+                                  title=book.get('title', ''),
+                                  author=book.get('author', ''))
 
-        return 0, "", ""
+        return book_entry(id=0, title=title, author="")
 
-    def list_db(self, in_str=""):
+    @staticmethod
+    def db_entries_to_dict(in_entries=None):
         """
-        Obtain a listing (search results) from Calibre DB, using the received search string.
-        :param in_str: A search string containing the (partial) title of a book
-        :return: A book_entry tuple with the book Calibre id on success or id set to -1 and book title to an
-        error message on failure
+
+        :param in_entries: A list of strings representing entries in the DB: id, title, author
+        :return: A list of dictionaries (id, title, author) that match `search_str`
         """
-        command = ['/usr/bin/calibredb', 'list', '-s', in_str]
-        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        if not in_entries:
+            return list()
 
-        book_id, book_title, book_author = self.get_matching_result(result.stdout.split("\n"), in_str)
+        work_entries = [ent for ent in in_entries if ent and not re.search(r'^(Fail|id +title)', ent)]
 
-        if result.returncode != 0 and "Another calibre program" in result.stderr:
-            return book_entry(-1, "Another Calibre instance is active. Close it and try again.", None)
+        if not work_entries:
+            return in_entries
 
-        return book_entry(id=int(book_id), title=book_title, author=book_author)
+        entries = list()
+        keys = ['id', 'title', 'author']
+
+        b_ix = 0
+        for w_ent in work_entries:
+            ent_parts = re.split(r'  +', w_ent)
+
+            if len(ent_parts) < 3 and re.search(r'[A-Za-z0-9]+$', w_ent):
+                ent_parts.append(ent_parts[-1])
+                ent_parts[-2] = ""
+
+            book = dict(zip(keys, ent_parts))
+
+            if not book:
+                continue
+
+            if book.get('id', None):
+                entries.append(book)
+                b_ix += 1
+                continue
+
+            if b_ix == 0:
+                continue
+
+            join_char = "" if entries[b_ix - 1]['title'].endswith('-') else " "
+            entries[b_ix - 1]['title'] += (join_char + book['title'])
+
+            if book.get('author', ''):
+                entries[b_ix - 1]['author'] = " ".join([entries[b_ix - 1]['author'], book['author']])
+
+        return entries
 
     @staticmethod
     def remove_series_from_title(work_title=""):
@@ -164,6 +210,38 @@ class CalibreHandler(object):
             return work_title
 
         return re.sub(rx_pattern, '', work_title).strip()
+
+    def get_all_db_books(self):
+        command_all = ['/usr/bin/calibredb', 'list']
+        result_all = run(command_all, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+
+        return self.db_entries_to_dict(result_all.stdout.split("\n"))
+
+    def extract_title_if_hyphen(self, working_title=""):
+        if " - " not in working_title:
+            return working_title
+
+        splitter_str = " - "
+
+        work_str = working_title[: working_title.rfind(splitter_str)].strip()
+
+        db_titles = [dbe.get('title', '') for dbe in self.books]
+        title_res = [dbt for dbt in db_titles if work_str in dbt]
+
+        if title_res:
+            return work_str
+
+        db_authors = [dbe.get('author', '') for dbe in self.books]
+        author_res = [dba for dba in db_authors if work_str in dba]
+
+        if not author_res and ", " in work_str:
+            work_str = " ".join(work_str.split(", ")[::-1])
+            author_res = [dba for dba in db_authors if work_str in dba]
+
+        if author_res:
+            work_str = re.sub(r'^[ \-_]+', '', working_title[working_title.rfind(splitter_str):]).strip()
+
+        return work_str
 
     def extract_title(self, working_title=""):
         """
@@ -182,15 +260,12 @@ class CalibreHandler(object):
         pat = re.compile(r'[(]?' + zlib_str + r'(.org)?' + r'[)]?')
         working_title = re.sub(pat, "", working_title).strip()
         working_title = re.sub(r'[(.]+$', '', working_title)
-        splitter_str = ""
 
         if " by " in working_title:
             splitter_str = " by "
-        elif " - " in working_title:
-            splitter_str = " - "
-
-        if splitter_str:
             return working_title[: working_title.rfind(splitter_str)].strip()
+
+        working_title = self.extract_title_if_hyphen(working_title)
 
         if re.search(r'[(].*[)] *$', working_title):
             return re.sub(r'[(].*[)] *$', "", working_title).strip()
@@ -240,7 +315,7 @@ class CalibreHandler(object):
                 f"Unable to extract book title from the received file name {repr(in_file)}, exiting.")
             return 0
 
-        list_entry = self.list_db(title)
+        list_entry = self.matching_book(title)
 
         if list_entry.id == -1:
             self._post_notification(summary, list_entry.title)
