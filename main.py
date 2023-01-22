@@ -99,10 +99,9 @@ class CalibreHandler(object):
         return re.sub(re.compile(wanted_str), "", converted_res).strip() or ""
 
     @staticmethod
-    def assemble_entries(in_title, in_entries=None):
+    def assemble_entries(in_entries=None):
         """
 
-        :in_title: A string representing the title f the book we are to add to the DB
         :param in_entries: A list of strings representing entries in the DB: id, title, author
         :return: A list of dictionaries (id, title, author) that match `search_str`
         """
@@ -173,7 +172,16 @@ class CalibreHandler(object):
 
         b_ix = 0
         for w_ent in work_entries:
+            m = re.search(r'^[0-9]+ +', w_ent)
+
+            if not m:
+                continue
+
+            part_a = w_ent[: m.end()].strip()
+            w_ent = w_ent[m.end():]
+
             ent_parts = re.split(r'  +', w_ent)
+            ent_parts = [part_a] + ent_parts
 
             if len(ent_parts) < 3 and re.search(r'[A-Za-z0-9]+$', w_ent):
                 ent_parts.append(ent_parts[-1])
@@ -231,17 +239,47 @@ class CalibreHandler(object):
         if title_res:
             return work_str
 
-        db_authors = [dbe.get('author', '') for dbe in self.books]
-        author_res = [dba for dba in db_authors if work_str in dba]
+        def is_subset(in_a, in_b):
+            set_a = set(re.split(r'[. ,]+', in_a))
+            set_b = set(re.split(r'[. ,]+', in_b))
+
+            return set_a.issubset(set_b) or set_b.issubset(set_a)
+
+        db_authors = list(set([dbe.get('author', '') for dbe in self.books]))
+        author_res = [dba for dba in db_authors if work_str in dba or is_subset(work_str, dba)]
+
+        if not author_res and splitter_str in work_str:
+            return self.extract_title_if_hyphen(work_str)
 
         if not author_res and ", " in work_str:
             work_str = " ".join(work_str.split(", ")[::-1])
             author_res = [dba for dba in db_authors if work_str in dba]
 
-        if author_res:
-            work_str = re.sub(r'^[ \-_]+', '', working_title[working_title.rfind(splitter_str):]).strip()
+        # if author_res:
+        #     work_str = re.sub(r'^[ \-_]+', '', working_title[working_title.rfind(splitter_str):]).strip()
 
-        return work_str
+        return self.remove_author(working_title, author_res)
+
+    @staticmethod
+    def remove_author(in_work_str, in_author=None):
+        if not in_author:
+            return in_work_str
+
+        author = in_author
+
+        if isinstance(in_author, list):
+            author = " ".join(in_author)
+
+        author_parts = re.split(r'[. ,]+', author)
+
+        out_str = in_work_str
+
+        for part in author_parts:
+            pat = re.compile(f"([\b]{part}[\b]|{part}[,. ])")
+            out_str = re.sub(pat, '', in_work_str)
+            in_work_str = out_str
+
+        return out_str.strip("- ")
 
     def extract_title(self, working_title=""):
         """
@@ -318,7 +356,7 @@ class CalibreHandler(object):
         list_entry = self.matching_book(title)
 
         if list_entry.id == -1:
-            self._post_notification(summary, list_entry.title)
+            self._post_notification(summary, in_file)
             return 0
 
         # If book not in DB, add it:
@@ -326,7 +364,7 @@ class CalibreHandler(object):
             res_entry = self.add_book(abs_file_path)
 
             if res_entry.id == -1:
-                self._post_notification(summary, res_entry.title)
+                self._post_notification(summary, in_file)
                 return 0
 
             list_entry = book_entry(id=res_entry.id, title=title, author="")
