@@ -8,11 +8,13 @@ from pynotifier import Notification  # NOQA
 
 book_entry = namedtuple("book_entry", "id title author")
 
+
 HOME_DIR = os.path.expanduser("~")
+
+RESULT_FORMAT_IN_DB = "format exists"
 
 
 class CalibreHandler(object):
-
     def __init__(self, watched_dir="~/temp"):
         self._watched_dir = None
 
@@ -60,15 +62,53 @@ class CalibreHandler(object):
         return book_entry(b_id, "", None)
 
     @staticmethod
+    def get_book_formats(book_id, book_title=""):
+        """
+        Retrieve a list of formats in the Calibre DB for the given book title
+
+        :param book_id: A string containing the identifier of the book for which to get existing formats
+        :param book_title: The name of the file containing the book in the format to add
+        :return: A book_entry tuple with the added book Calibre id on success or id set to -1 and book title to an
+        error message on failure
+        """
+        command_all = ['/usr/bin/calibredb', 'list', '-s', book_title, "-f", "formats"]
+        result_raw = run(command_all, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+
+        matched_book = ""
+
+        for book_line in result_raw.stdout.split("\n"):
+            if re.search(r'^(Fail|id +title|id +formats)', book_line):
+                continue
+
+            line_id = next(iter(re.findall(r'^\d+ +', book_line)), "").strip()
+
+            if not line_id and not matched_book:
+                continue
+
+            if line_id and book_id.strip() != line_id:
+                continue
+
+            matched_book += book_line[0 if not line_id else len(line_id):]
+
+            if "]" not in matched_book:
+                continue
+
+        return [re.sub(r'^\.', '', fmt) for fmt in re.findall(r'\.[a-z]+\b', matched_book)]
+
+    @staticmethod
     def add_format(calibre_id="", in_file=""):
         """
         Add the named book format to Calibre
 
         :param calibre_id: The id of an existing book to which to add a new format
-        :param in_file: The name of the file containing the book in the format to add
+        :param in_file: The name of the file containing the book in the format to add or RESULT_FORMAT_IN_DB if the
+        desired format is already present
         :return: A book_entry tuple with the added book Calibre id on success or id set to -1 and book title to an
         error message on failure
         """
+        if in_file == RESULT_FORMAT_IN_DB:
+            return book_entry(calibre_id, "", None)
+
         command = ['/usr/bin/calibredb', 'add_format', str(calibre_id), in_file]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
@@ -87,7 +127,12 @@ class CalibreHandler(object):
 
         return result
 
-    def convert_book(self, org_book="", dest_format="mobi"):
+    def convert_book(self, org_book="", dest_format="mobi", existing_formats=None):
+        existing_formats = list() if not existing_formats else existing_formats
+
+        if dest_format in existing_formats:
+            return RESULT_FORMAT_IN_DB
+
         command = ['/usr/bin/ebook-convert',
                    os.path.abspath(os.path.join(self.watched_dir, org_book)),
                    os.path.abspath(os.path.join(HOME_DIR, "temp", re.sub(r'epub$', dest_format, org_book)))]
@@ -97,46 +142,6 @@ class CalibreHandler(object):
         converted_res = next(iter([out_line for out_line in result.stdout.split("\n") if wanted_str in out_line]), "")
 
         return re.sub(re.compile(wanted_str), "", converted_res).strip() or ""
-
-    @staticmethod
-    def assemble_entries(in_entries=None):
-        """
-
-        :param in_entries: A list of strings representing entries in the DB: id, title, author
-        :return: A list of dictionaries (id, title, author) that match `search_str`
-        """
-        if not in_entries:
-            return list()
-
-        work_entries = [ent for ent in in_entries if ent and not re.search(r'^(Fail|id +title)', ent)]
-
-        if not work_entries:
-            return in_entries
-
-        entries = list()
-        entry_model = {
-            'id': '',
-            'title': '',
-            'author': ''
-        }
-        for ix, w_ent in enumerate(work_entries):
-            re_match = re.search(r'^[0-9]+', w_ent)
-            if re_match:
-                ent = dict(entry_model)
-                ent['id'] = w_ent[:re_match.end()].strip()
-                ent_rest = w_ent[re_match.end():].strip()
-                ent['author'] = re.split(r' {2,}', ent_rest)[-1]
-                ent['title'] = next(iter(ent_rest), "")
-                entries.append(ent)
-                continue
-
-            if ix < 1:
-                continue
-
-            if entries[ix - 1]:
-                entries[ix - 1]['title'] = re.sub(r' +', ' ', " ".join([entries[ix - 1]['title'], w_ent.strip()]))
-
-        return ["  ".join([v for v in ent.values()]) for ent in entries]
 
     def matching_book(self, title=""):
         default_ret = book_entry(id=-1, title="", author="")
@@ -171,23 +176,20 @@ class CalibreHandler(object):
         keys = ['id', 'title', 'author']
 
         b_ix = 0
-        for w_ent in work_entries:
-            m = re.search(r'^[0-9]+ +', w_ent)
+        for w_entry in work_entries:
+            id_str = next(iter(re.findall(r'^\d+ +', w_entry)), "")
 
-            if not m:
-                continue
+            if id_str:
+                w_entry = w_entry[len(id_str):]
 
-            part_a = w_ent[: m.end()].strip()
-            w_ent = w_ent[m.end():]
+            entry_parts = re.split(r'  +', w_entry)
+            entry_parts = [id_str.strip()] + entry_parts if id_str else entry_parts
 
-            ent_parts = re.split(r'  +', w_ent)
-            ent_parts = [part_a] + ent_parts
+            if len(entry_parts) < 3 and re.search(r'[\w\d]+$', w_entry):
+                entry_parts.append(entry_parts[-1])
+                entry_parts[-2] = ""
 
-            if len(ent_parts) < 3 and re.search(r'[A-Za-z0-9]+$', w_ent):
-                ent_parts.append(ent_parts[-1])
-                ent_parts[-2] = ""
-
-            book = dict(zip(keys, ent_parts))
+            book = dict(zip(keys, entry_parts))
 
             if not book:
                 continue
@@ -200,7 +202,7 @@ class CalibreHandler(object):
             if b_ix == 0:
                 continue
 
-            join_char = "" if entries[b_ix - 1]['title'].endswith('-') else " "
+            join_char = "" if re.search(r'[-/]+$', entries[b_ix - 1]['title']) else " "
             entries[b_ix - 1]['title'] += (join_char + book['title'])
 
             if book.get('author', ''):
@@ -255,9 +257,6 @@ class CalibreHandler(object):
             work_str = " ".join(work_str.split(", ")[::-1])
             author_res = [dba for dba in db_authors if work_str in dba]
 
-        # if author_res:
-        #     work_str = re.sub(r'^[ \-_]+', '', working_title[working_title.rfind(splitter_str):]).strip()
-
         return self.remove_author(working_title, author_res)
 
     @staticmethod
@@ -275,7 +274,7 @@ class CalibreHandler(object):
         out_str = in_work_str
 
         for part in author_parts:
-            pat = re.compile(f"([\b]{part}[\b]|{part}[,. ])")
+            pat = re.compile(f"({part}|{part}[,. ])")
             out_str = re.sub(pat, '', in_work_str)
             in_work_str = out_str
 
@@ -370,7 +369,10 @@ class CalibreHandler(object):
             list_entry = book_entry(id=res_entry.id, title=title, author="")
 
         # Try converting the book (to mobi by default):
-        convert_res = self.convert_book(org_book=in_file, dest_format="mobi" if extension_str == "epub" else "")
+        target_format = "mobi"
+        convert_res = self.convert_book(org_book=in_file,
+                                        dest_format=target_format if extension_str == "epub" else "",
+                                        existing_formats=self.get_book_formats(str(list_entry.id), title))
 
         if not convert_res:
             self._post_notification(
