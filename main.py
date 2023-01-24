@@ -4,24 +4,77 @@ import re
 from subprocess import PIPE, run
 from collections import namedtuple
 from pynotifier import Notification  # NOQA
-# from shlex import split
+from enum import Enum, auto
+
 
 book_entry = namedtuple("book_entry", "id title author")
 
 
 HOME_DIR = os.path.expanduser("~")
 
-RESULT_FORMAT_IN_DB = "format exists"
+
+class Result(Enum):
+    PROCESSING = auto()
+    FILE_DOES_NOT_EXIST = auto()
+    NO_EXTENSION = auto()
+    CANNOT_EXTRACT_TITLE = auto()
+    TITLE_EMPTY = auto()
+    BOOK_NOT_FOUND = auto()
+    UNABLE_TO_ADD_BOOK = auto()
+    CONVERSION_FAILED = auto()
+    FORMAT_IN_DB = auto()
+    UNABLE_TO_ADD_FORMAT = auto()
+    PROCESSED = auto()
 
 
-class CalibreHandler(object):
-    def __init__(self, watched_dir="~/temp"):
+class CalibreBookHandler(object):
+    """
+    This class is dedicated to processing one book file at a time.
+    Processing involves picking up the file from the designated directory,
+    checking if it is in Calibre DB and if not adding it to Calibre and
+    then converting it to mobi if the mobi format is not already in the DB.
+    """
+    def __init__(self, watched_dir="~/temp", book_file=""):
+        self._book = None
+
+        self.book_file = book_file
+
         self._watched_dir = None
 
         self.watched_dir = watched_dir
 
+        self._processed_path = None
+        self.processed_path = re.sub(r'in-books', 'processed', self.watched_dir)
+
         self._books = None
         self.books = self.get_all_db_books()
+
+        self._abs_path = None
+        self.abs_path = os.path.abspath(os.path.join(self.watched_dir, self.book_file))
+
+    @property
+    def book_file(self):
+        return self._book_file
+
+    @book_file.setter
+    def book_file(self, in_book):
+        self._book_file = in_book
+
+    @property
+    def abs_path(self):
+        return self._abs_path
+
+    @abs_path.setter
+    def abs_path(self, in_path):
+        self._abs_path = in_path
+
+    @property
+    def processed_path(self):
+        return self._processed_path
+
+    @processed_path.setter
+    def processed_path(self, in_path):
+        self._processed_path = in_path
 
     @property
     def books(self):
@@ -55,11 +108,11 @@ class CalibreHandler(object):
         wanted_str = "Added book ids: "
 
         if wanted_str not in result.stdout:
-            return book_entry(-1, f"Unable to add book: received file {repr(in_file)}", None)
+            return book_entry(-1, Result.UNABLE_TO_ADD_BOOK, None)
 
         b_id = int(result.stdout.split(wanted_str)[-1])
 
-        return book_entry(b_id, "", None)
+        return book_entry(b_id, Result.PROCESSED, None)
 
     @staticmethod
     def get_book_formats(book_id, book_title=""):
@@ -101,22 +154,22 @@ class CalibreHandler(object):
         Add the named book format to Calibre
 
         :param calibre_id: The id of an existing book to which to add a new format
-        :param in_file: The name of the file containing the book in the format to add or RESULT_FORMAT_IN_DB if the
+        :param in_file: The name of the file containing the book in the format to add or Result.FORMAT_IN_DB if the
         desired format is already present
         :return: A book_entry tuple with the added book Calibre id on success or id set to -1 and book title to an
         error message on failure
         """
-        if in_file == RESULT_FORMAT_IN_DB:
-            return book_entry(calibre_id, "", None)
+        if in_file == Result.FORMAT_IN_DB:
+            return book_entry(calibre_id, Result.FORMAT_IN_DB, None)
 
         command = ['/usr/bin/calibredb', 'add_format', str(calibre_id), in_file]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         if result.returncode != 0:
-            return book_entry(-1, f"Unable to add format: received file {in_file}", None)
+            return book_entry(-1, Result.UNABLE_TO_ADD_FORMAT, None)
 
         os.remove(in_file)
-        return book_entry(calibre_id, "", None)
+        return book_entry(calibre_id, Result.PROCESSED, None)
 
     @staticmethod
     def search_db(in_str=""):
@@ -128,10 +181,19 @@ class CalibreHandler(object):
         return result
 
     def convert_book(self, org_book="", dest_format="mobi", existing_formats=None):
+        """
+        Convert given book to another format
+        :param org_book: A string containing the name of the book file to convert
+        :param dest_format: A string containing the name of the target format
+        :param existing_formats: A list of existing book formats
+        :return: On success, the name of the converted book file (with the target extension), otherwise
+        an error code from the Result class
+        """
+        org_book = self.book_file or org_book
         existing_formats = list() if not existing_formats else existing_formats
 
         if dest_format in existing_formats:
-            return RESULT_FORMAT_IN_DB
+            return Result.FORMAT_IN_DB
 
         command = ['/usr/bin/ebook-convert',
                    os.path.abspath(os.path.join(self.watched_dir, org_book)),
@@ -141,7 +203,7 @@ class CalibreHandler(object):
         wanted_str = "Output saved to "
         converted_res = next(iter([out_line for out_line in result.stdout.split("\n") if wanted_str in out_line]), "")
 
-        return re.sub(re.compile(wanted_str), "", converted_res).strip() or ""
+        return re.sub(re.compile(wanted_str), "", converted_res).strip() or Result.CONVERSION_FAILED
 
     def matching_book(self, title=""):
         default_ret = book_entry(id=-1, title="", author="")
@@ -185,7 +247,7 @@ class CalibreHandler(object):
             entry_parts = re.split(r'  +', w_entry)
             entry_parts = [id_str.strip()] + entry_parts if id_str else entry_parts
 
-            if len(entry_parts) < 3 and re.search(r'[\w\d]+$', w_entry):
+            if len(entry_parts) < 3 and re.search(r'[\w;,&]+$', w_entry):
                 entry_parts.append(entry_parts[-1])
                 entry_parts[-2] = ""
 
@@ -309,8 +371,9 @@ class CalibreHandler(object):
 
         return working_title.strip()
 
-    @staticmethod
-    def get_file_base_name_and_extension(file_name=""):
+    def get_file_base_name_and_extension(self, file_name=""):
+        file_name = file_name or self.book_file
+
         matched = re.search(r'\.[a-zA-Z0-9]+$', file_name)
 
         if matched:
@@ -328,70 +391,81 @@ class CalibreHandler(object):
             urgency='normal'
         ).send()
 
-    def process_book(self, in_file=""):
+    def _notify(self, code):
         summary = "calibre-utils"
-        abs_file_path = os.path.abspath(os.path.join(self.watched_dir, in_file))
 
-        if not os.path.exists(abs_file_path):
-            self._post_notification(summary, f"The file {repr(in_file)} does not exist.")
+        notify_text = {
+            Result.PROCESSING: f"inotify_calibre: Processing  file {repr(self.book_file)} ...",
+            Result.FILE_DOES_NOT_EXIST: f"The file {repr(self.book_file)} does not exist.",
+            Result.NO_EXTENSION: f"Received file {repr(self.book_file)}, cannot process a file without extension.",
+            Result.CANNOT_EXTRACT_TITLE:
+                f"Unable to extract book title from the received file name {repr(self.book_file)}, exiting.",
+            Result.TITLE_EMPTY: f"Book title not found in file  {repr(self.book_file)}, exiting.",
+            Result.UNABLE_TO_ADD_BOOK: f"Unable to add book: received file {repr(self.book_file)}",
+            Result.CONVERSION_FAILED: f"Unable to convert {repr(self.book_file)} to mobi, exiting.",
+            Result.FORMAT_IN_DB: f"{repr(self.book_file)} is in Calibre in mobi, moving it to {self.processed_path}",
+            Result.UNABLE_TO_ADD_FORMAT: f"Unable to add format: received file {self.book_file}",
+            Result.PROCESSED:
+                f"{repr(self.book_file)} is in Calibre and converted to mobi, moving it to {self.processed_path}",
+        }
+
+        if code not in notify_text:
+            return
+
+        self._post_notification(summary, notify_text[code])
+
+    def process_book(self):
+        if not os.path.exists(self.abs_path):
+            self._notify(Result.FILE_DOES_NOT_EXIST)
             return 0
 
-        self._post_notification(summary, f"inotify_calibre: Processing  file {repr(in_file)} ...")
+        self._notify(Result.PROCESSING)
 
-        file_base_name, extension_str = self.get_file_base_name_and_extension(file_name=in_file)
+        file_base_name, extension_str = self.get_file_base_name_and_extension()
 
         if not extension_str or extension_str == file_base_name:
-            self._post_notification(summary, f"Received file {repr(in_file)}, cannot process a file without extension.")
+            self._notify(Result.NO_EXTENSION)
             return 0
 
         title = self.extract_title(file_base_name)
 
         if not title:
-            self._post_notification(
-                summary,
-                f"Unable to extract book title from the received file name {repr(in_file)}, exiting.")
+            self._notify(Result.CANNOT_EXTRACT_TITLE)
             return 0
 
         list_entry = self.matching_book(title)
 
         if list_entry.id == -1:
-            self._post_notification(summary, in_file)
+            self._notify(Result.TITLE_EMPTY)
             return 0
 
         # If book not in DB, add it:
         if not list_entry.id:
-            res_entry = self.add_book(abs_file_path)
+            res_entry = self.add_book(self.abs_path)
 
             if res_entry.id == -1:
-                self._post_notification(summary, in_file)
+                self._notify(Result.UNABLE_TO_ADD_BOOK)
                 return 0
 
             list_entry = book_entry(id=res_entry.id, title=title, author="")
 
         # Try converting the book (to mobi by default):
         target_format = "mobi"
-        convert_res = self.convert_book(org_book=in_file,
-                                        dest_format=target_format if extension_str == "epub" else "",
+        convert_res = self.convert_book(dest_format=target_format if extension_str == "epub" else "",
                                         existing_formats=self.get_book_formats(str(list_entry.id), title))
 
-        if not convert_res:
-            self._post_notification(
-                summary,
-                f"Unable to convert the book in file name {repr(in_file)} to mobi, exiting.")
+        self._notify(convert_res)
+
+        # Save original file:
+        os.rename(self.abs_path, os.path.abspath(os.path.join(self.processed_path, self.book_file)))
+
+        if convert_res in [Result.FORMAT_IN_DB, Result.CONVERSION_FAILED]:
             return 0
 
         # Add the new format to the book in Calibre:
         res_entry = self.add_format(list_entry.id, convert_res)
 
-        processed_path = re.sub(r'in-books', 'processed', self.watched_dir)
-
-        if res_entry.id > 0:
-            self._post_notification(
-                summary,
-                f"{repr(in_file)} is in Calibre and converted to mobi, moving it to {processed_path}")
-
-        # Save original file:
-        os.rename(abs_file_path, os.path.abspath(os.path.join(processed_path, in_file)))
+        self._notify(res_entry.title)
 
         return res_entry.id
 
@@ -416,8 +490,8 @@ if __name__ == '__main__':
     if not args.in_file:
         exit(1)
 
-    ch = CalibreHandler(watched_dir=args.watched_dir)
-    res = ch.process_book(in_file=args.in_file)
+    ch = CalibreBookHandler(watched_dir=args.watched_dir, book_file=args.in_file)
+    res = ch.process_book()
 
     if res > 0:
         exit(0)
