@@ -1,10 +1,10 @@
 import argparse
 import os
 import re
-from subprocess import PIPE, run
 from collections import namedtuple
+from enum import auto, Enum
+from subprocess import PIPE, run
 from pynotifier import Notification  # NOQA
-from enum import Enum, auto
 
 
 book_entry = namedtuple("book_entry", "id title author")
@@ -183,7 +183,8 @@ class CalibreBookHandler(object):
     def convert_book(self, org_book="", dest_format="mobi", existing_formats=None):
         """
         Convert given book to another format
-        :param org_book: A string containing the name of the book file to convert
+        :param org_book: A string containing the name of the book file to convert; if not provided, use the instance
+        member `book_file`
         :param dest_format: A string containing the name of the target format
         :param existing_formats: A list of existing book formats
         :return: On success, the name of the converted book file (with the target extension), otherwise
