@@ -221,8 +221,13 @@ class CalibreBookHandler(object):
             if in_book.title in db_title:
                 return True
 
-            return ((title_set.issubset(db_title_set) or db_title_set.issubset(title_set)) and
-                    (db_author_set.issubset(title_set) or db_author_set.issubset(in_author_set)))
+            if not (title_set.issubset(db_title_set) or db_title_set.issubset(title_set)):
+                return False
+
+            if not in_author_set or not in_book.author:
+                return True
+
+            return db_author_set.issubset(title_set) or db_author_set.issubset(in_author_set)
 
         for book in self.books:
             if test_title_author_sets(book, info):
@@ -325,18 +330,46 @@ class CalibreBookHandler(object):
 
         return set_a.issubset(set_b) or set_b.issubset(set_a)
 
+    def is_name(self, in_str):
+        """
+        Check if the supplied string is part of an author's name in the DB
+        :param in_str: String to check
+        :return: True on success or False if no maatch
+        """
+        for dbb in self.books:
+            if self.is_subset(in_str, dbb.get("author", "")):
+                return True
+
+        return False
+
+    def is_title(self, in_str):
+        """
+        Check if the supplied string is part of a title in the DB
+        :param in_str: String to check
+        :return: True on success or False if no maatch
+        """
+        for dbb in self.books:
+            if self.is_subset(in_str, dbb.get("title", "")):
+                return True
+
+        return False
+
     def extract_title_if_hyphen(self, working_title=""):
         default_ret = book_entry(id=-1, title=working_title, author="", error=Result.TITLE_EMPTY)
         if " - " not in working_title:
             return default_ret
 
         splitter_str = " - "
-        splitter_ix = working_title.rfind(splitter_str)
-        work_title = working_title[: splitter_ix].strip()
-        work_author = working_title[splitter_ix + 1:].strip("- ")
+        split_title = working_title.split(splitter_str, 1)
+        before_split = next(iter(split_title), "").strip()
+        after_split = split_title[1].strip("- ")
+
+        # Swap work author and title values if work_author could be part of existing DB book title
+        is_title_after = (self.is_title(after_split) or not self.is_name(after_split))
+        work_author = before_split if is_title_after else after_split
+        work_title = after_split if is_title_after else before_split
 
         db_poss_title = [dbb for dbb in self.books if self.is_subset(work_title, dbb.get("title", ""))]
-
         if db_poss_title:
             for db_bk in db_poss_title:
                 db_author = db_bk.get("author", None)
@@ -358,7 +391,7 @@ class CalibreBookHandler(object):
                     error=Result.PROCESSING
                 )
 
-        return default_ret
+        return book_entry(id=-1, title=work_title or working_title, author=work_author, error=Result.PROCESSING)
 
     @staticmethod
     def remove_author(in_work_str, in_author=None):
@@ -497,7 +530,7 @@ class CalibreBookHandler(object):
 
         # Try converting the book (to mobi by default):
         target_format = "mobi"
-        convert_res = self.convert_book(dest_format=target_format if extension_str == "epub" else "",
+        convert_res = self.convert_book(dest_format=target_format,
                                         existing_formats=self.get_book_formats(str(list_entry.id), list_entry.title))
 
         self._notify(convert_res)
