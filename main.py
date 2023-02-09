@@ -13,6 +13,24 @@ book_entry = namedtuple("book_entry", "id title author error")
 HOME_DIR = os.path.expanduser("~")
 
 
+def log_it(level='info', src_name=None, text=None):
+    import logging
+
+    logging.basicConfig(level=logging.DEBUG)
+    logger_name = src_name if src_name else __name__
+    log_writer = logging.getLogger(logger_name)
+
+    if level == 'info':
+        log_writer.info(text)
+    elif level == 'error':
+        log_writer.error(text)
+    elif level == 'warning':
+        log_writer.warning(text)
+    else:
+        log_writer.debug(text)
+
+
+
 class Result(Enum):
     PROCESSING = auto()
     FILE_DOES_NOT_EXIST = auto()
@@ -37,8 +55,6 @@ class CalibreBookHandler(object):
     def __init__(self, watched_dir="~/temp", book_file=""):
         self._book = None
 
-        self.book_file = book_file
-
         self._watched_dir = None
 
         self.watched_dir = watched_dir
@@ -50,7 +66,9 @@ class CalibreBookHandler(object):
         self.books = self.get_all_db_books()
 
         self._abs_path = None
-        self.abs_path = os.path.abspath(os.path.join(self.watched_dir, self.book_file))
+        self.book_file = self.abs_path = book_file
+
+        # self.abs_path = os.path.abspath(os.path.join(self.watched_dir, self.book_file))
 
     @property
     def book_file(self):
@@ -65,8 +83,8 @@ class CalibreBookHandler(object):
         return self._abs_path
 
     @abs_path.setter
-    def abs_path(self, in_path):
-        self._abs_path = in_path
+    def abs_path(self, in_file):
+        self._abs_path = os.path.abspath(os.path.join(self.watched_dir, in_file))
 
     @property
     def processed_path(self):
@@ -103,7 +121,7 @@ class CalibreBookHandler(object):
         command = ['/usr/bin/calibredb', 'add', in_file]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
-        # print(repr(result))
+        # log_it("debug", __name__, repr(result))
 
         wanted_str = "Added book ids: "
 
@@ -174,8 +192,8 @@ class CalibreBookHandler(object):
     def search_db(in_str=""):
         command = ['/usr/bin/calibredb', 'search', in_str]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        print(result.returncode, result.stdout, result.stderr)
-        # print(call_output)
+
+        log_it(level="info", text=f"{result.returncode}, {result.stdout}, {result.stderr}")
 
         return result
 
@@ -493,7 +511,10 @@ class CalibreBookHandler(object):
 
         self._post_notification(summary, notify_text[code])
 
-    def process_book(self):
+    def process_book(self, in_book=""):
+        if in_book:
+            self.book_file = in_book
+            self.abs_path = in_book
         if not os.path.exists(self.abs_path):
             self._notify(Result.FILE_DOES_NOT_EXIST)
             return 0
@@ -548,6 +569,20 @@ class CalibreBookHandler(object):
 
         return res_entry.id
 
+    def _relative_path(self, parent, children):
+        return [os.path.join(parent, child) if parent != self.watched_dir else child for child in children]
+
+    def list_dir_files(self, in_dir=None):
+        if not in_dir:
+            in_dir = self.watched_dir
+
+        out_files = list()
+        for curr_dir, sub_dirs, files in os.walk(in_dir):
+            out_files += self._relative_path(curr_dir, files)
+            # out_files += self._full_path(curr_dir, files) + [curr_dir] + self._full_path(curr_dir, sub_dirs)
+
+        return out_files
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="This program processes files added to a directory watched by "
@@ -562,17 +597,18 @@ if __name__ == '__main__':
     parser.add_argument("-f", "--file", help="The name of the file added to the watched directory.",
                         type=str,
                         dest='in_file',
+                        default="",
                         required=False)
 
     args = parser.parse_args()
 
-    if not args.in_file:
-        exit(1)
-
     ch = CalibreBookHandler(watched_dir=args.watched_dir, book_file=args.in_file)
-    res = ch.process_book()
 
-    if res > 0:
-        exit(0)
+    target_files = [args.in_file] if args.in_file else ch.list_dir_files()
 
-    exit(res)
+    for count, file in enumerate(target_files):
+        res = ch.process_book(file)
+
+        log_it(level="info", text=f"Processed file {file}, {count+1}/{len(target_files)}, with result {res}")
+
+    exit(0)
