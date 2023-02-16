@@ -3,6 +3,7 @@ beautifulsoup4==4.11.2
 chardet==5.1.0
 css-parser==1.0.8
 dbus-next==0.2.3
+flake8-import-order==0.18.2
 html5-parser==0.4.10
 html5lib==1.1
 lxml==4.9.2
@@ -10,6 +11,7 @@ mechanize==0.4.8
 msgpack==1.0.4
 Pillow==9.4.0
 py-notifier==0.3.2
+pycodestyle==2.10.0
 PyQt6==6.4.2
 PyQt6-Qt6==6.4.2
 PyQt6-sip==13.4.1
@@ -17,5 +19,5 @@ python-dateutil==2.8.2
 regex==2022.10.31
 shiboken6==6.4.2
 six==1.16.0
-soupsieve==2.3.2.post1
+soupsieve==2.4
 webencodings==0.5.1

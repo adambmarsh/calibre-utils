@@ -30,7 +30,6 @@ def log_it(level='info', src_name=None, text=None):
         log_writer.debug(text)
 
 
-
 class Result(Enum):
     PROCESSING = auto()
     FILE_DOES_NOT_EXIST = auto()
