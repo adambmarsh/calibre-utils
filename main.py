@@ -4,7 +4,8 @@ import re
 from collections import namedtuple
 from enum import auto, Enum
 from subprocess import PIPE, run
-from pynotifier import Notification  # NOQA
+
+import dbusnotify
 
 
 book_entry = namedtuple("book_entry", "id title author error")
@@ -39,9 +40,11 @@ class Result(Enum):
     BOOK_NOT_FOUND = auto()
     UNABLE_TO_ADD_BOOK = auto()
     CONVERSION_FAILED = auto()
+    CONVERSION_SUCCESSFUL = auto()
     FORMAT_IN_DB = auto()
     UNABLE_TO_ADD_FORMAT = auto()
     PROCESSED = auto()
+    UNKNOWN = auto()
 
 
 class CalibreBookHandler(object):
@@ -165,20 +168,21 @@ class CalibreBookHandler(object):
         return [re.sub(r'^\.', '', fmt) for fmt in re.findall(r'\.[a-z]+\b', matched_book)]
 
     @staticmethod
-    def add_format(calibre_id="", in_file=""):
+    def add_format(calibre_id="", in_file="", in_result=Result.PROCESSING):
         """
         Add the named book format to Calibre
 
         :param calibre_id: The id of an existing book to which to add a new format
         :param in_file: The name of the file containing the book in the format to add or Result.FORMAT_IN_DB if the
         desired format is already present
+        :param in_result: The result of the last operation (a member of Result class)
         :return: A book_entry tuple with the added book Calibre id on success or id set to -1 and error to an
         error message on failure
         """
-        if in_file == Result.FORMAT_IN_DB:
+        if in_result == Result.FORMAT_IN_DB:
             return book_entry(calibre_id, "", None, Result.FORMAT_IN_DB)
 
-        command = ['/usr/bin/calibredb', 'add_format', str(calibre_id), in_file]
+        command = ['/usr/bin/calibredb', 'add_format', str(calibre_id), in_file.strip()]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         if result.returncode != 0:
@@ -203,14 +207,14 @@ class CalibreBookHandler(object):
         member `book_file`
         :param dest_format: A string containing the name of the target format
         :param existing_formats: A list of existing book formats
-        :return: On success, the name of the converted book file (with the target extension), otherwise
-        an error code from the Result class
+        :return: On success, Result.CONVERSION_SUCCESSFUL and path to conversion output, otherwise
+        an error code from the Result class and conversion output ("")
         """
         org_book = self.book_file or org_book
         existing_formats = list() if not existing_formats else existing_formats
 
         if dest_format in existing_formats:
-            return Result.FORMAT_IN_DB
+            return Result.FORMAT_IN_DB, ""
 
         command = ['/usr/bin/ebook-convert',
                    os.path.abspath(os.path.join(self.watched_dir, org_book)),
@@ -218,9 +222,11 @@ class CalibreBookHandler(object):
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         wanted_str = "Output saved to "
-        converted_res = next(iter([out_line for out_line in result.stdout.split("\n") if wanted_str in out_line]), "")
+        conversion_output = next(iter([out_line for out_line in result.stdout.split("\n") if wanted_str in out_line]),
+                                 "")
 
-        return re.sub(re.compile(wanted_str), "", converted_res).strip() or Result.CONVERSION_FAILED
+        return (Result.CONVERSION_SUCCESSFUL, conversion_output[len(wanted_str):].strip()) if conversion_output else \
+            (Result.CONVERSION_FAILED, "")
 
     def matching_book(self, info=None):
         default_ret = book_entry(id=-1, title="", author="", error="")
@@ -351,7 +357,7 @@ class CalibreBookHandler(object):
         """
         Check if the supplied string is part of an author's name in the DB
         :param in_str: String to check
-        :return: True on success or False if no maatch
+        :return: True on success or False if no match
         """
         for dbb in self.books:
             if self.is_subset(in_str, dbb.get("author", "")):
@@ -363,7 +369,7 @@ class CalibreBookHandler(object):
         """
         Check if the supplied string is part of a title in the DB
         :param in_str: String to check
-        :return: True on success or False if no maatch
+        :return: True on success or False if no match
         """
         for dbb in self.books:
             if self.is_subset(in_str, dbb.get("title", "")):
@@ -479,15 +485,13 @@ class CalibreBookHandler(object):
 
     @staticmethod
     def _post_notification(in_summary="calibre_utils", in_description=""):
-        Notification(
+        dbusnotify.write(
+            in_description,
             title=in_summary,
-            description=in_description,
-            icon_path='',  # On Windows .ico is required, on Linux - .png
-            duration=6,  # Duration in seconds
-            urgency='normal'
-        ).send()
+            icon='',  # On Windows .ico is required, on Linux - .png
+        )
 
-    def _notify(self, code):
+    def _notify(self, code=Result.UNKNOWN, alt_text=None):
         summary = "calibre-utils"
 
         notify_text = {
@@ -499,11 +503,16 @@ class CalibreBookHandler(object):
             Result.TITLE_EMPTY: f"Book title not found in file  {repr(self.book_file)}, exiting.",
             Result.UNABLE_TO_ADD_BOOK: f"Unable to add book: received file {repr(self.book_file)}",
             Result.CONVERSION_FAILED: f"Unable to convert {repr(self.book_file)} to mobi, exiting.",
+            Result.CONVERSION_SUCCESSFUL: f"Converted {repr(self.book_file)} to mobi",
             Result.FORMAT_IN_DB: f"{repr(self.book_file)} is in Calibre in mobi, moving it to {self.processed_path}",
             Result.UNABLE_TO_ADD_FORMAT: f"Unable to add format: received file {self.book_file}",
             Result.PROCESSED:
                 f"{repr(self.book_file)} is in Calibre and converted to mobi, moving it to {self.processed_path}",
         }
+
+        if alt_text:
+            self._post_notification(summary, alt_text)
+            return
 
         if code not in notify_text:
             return
@@ -515,7 +524,7 @@ class CalibreBookHandler(object):
             self.book_file = in_book
             self.abs_path = in_book
         if not os.path.exists(self.abs_path):
-            self._notify(Result.FILE_DOES_NOT_EXIST)
+            self._notify(code=Result.FILE_DOES_NOT_EXIST)
             return 0
 
         self._notify(Result.PROCESSING)
@@ -550,8 +559,9 @@ class CalibreBookHandler(object):
 
         # Try converting the book (to mobi by default):
         target_format = "mobi"
-        convert_res = self.convert_book(dest_format=target_format,
-                                        existing_formats=self.get_book_formats(str(list_entry.id), list_entry.title))
+        convert_res, out_file = self.convert_book(
+            dest_format=target_format,
+            existing_formats=self.get_book_formats(str(list_entry.id), list_entry.title))
 
         self._notify(convert_res)
 
@@ -562,9 +572,9 @@ class CalibreBookHandler(object):
             return 0
 
         # Add the new format to the book in Calibre:
-        res_entry = self.add_format(list_entry.id, convert_res)
+        res_entry = self.add_format(list_entry.id, out_file)
 
-        self._notify(res_entry.title)
+        self._notify(res_entry.error)
 
         return res_entry.id
 
