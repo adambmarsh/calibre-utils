@@ -485,10 +485,11 @@ class CalibreBookHandler(object):
 
     @staticmethod
     def _post_notification(in_summary="calibre_utils", in_description=""):
+        icon_file = os.path.join(os.getcwd(), 'calibre-utils.png')
         dbusnotify.write(
             in_description,
             title=in_summary,
-            icon='',  # On Windows .ico is required, on Linux - .png
+            icon=icon_file,  # On Windows .ico is required, on Linux - .png
         )
 
     def _notify(self, code=Result.UNKNOWN, alt_text=None):
