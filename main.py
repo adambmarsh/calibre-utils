@@ -40,6 +40,7 @@ class Result(Enum):
     BOOK_NOT_FOUND = auto()
     UNABLE_TO_ADD_BOOK = auto()
     CONVERSION_FAILED = auto()
+    CONVERSION_ABANDONED_PDF = auto()
     CONVERSION_SUCCESSFUL = auto()
     FORMAT_IN_DB = auto()
     UNABLE_TO_ADD_FORMAT = auto()
@@ -212,6 +213,9 @@ class CalibreBookHandler(object):
         """
         org_book = self.book_file or org_book
         existing_formats = list() if not existing_formats else existing_formats
+
+        if org_book.endswith("pdf"):
+            return Result.CONVERSION_ABANDONED_PDF, ""
 
         if dest_format in existing_formats:
             return Result.FORMAT_IN_DB, ""
@@ -509,6 +513,7 @@ class CalibreBookHandler(object):
             Result.UNABLE_TO_ADD_FORMAT: f"Unable to add format: received file {self.book_file}",
             Result.PROCESSED:
                 f"{repr(self.book_file)} is in Calibre and converted to mobi, moving it to {self.processed_path}",
+            Result.CONVERSION_ABANDONED_PDF: f"{repr(self.book_file)} is a PDF file, please try manual conversion"
         }
 
         if alt_text:
@@ -569,7 +574,7 @@ class CalibreBookHandler(object):
         # Save original file:
         os.rename(self.abs_path, os.path.abspath(os.path.join(self.processed_path, self.book_file)))
 
-        if convert_res in [Result.FORMAT_IN_DB, Result.CONVERSION_FAILED]:
+        if convert_res in [Result.FORMAT_IN_DB, Result.CONVERSION_FAILED, Result.CONVERSION_ABANDONED_PDF]:
             return 0
 
         # Add the new format to the book in Calibre:
