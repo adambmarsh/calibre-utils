@@ -8,6 +8,9 @@ from subprocess import PIPE, run
 import dbusnotify
 
 
+__version__ = '0.0.2'
+
+
 book_entry = namedtuple("book_entry", "id title author error")
 
 
