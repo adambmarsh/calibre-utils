@@ -8,7 +8,7 @@ from subprocess import PIPE, run
 import dbusnotify
 
 
-__version__ = '0.0.2'
+__version__ = '0.0.3'
 
 
 book_entry = namedtuple("book_entry", "id title author error")
@@ -58,7 +58,10 @@ class CalibreBookHandler(object):
     checking if it is in Calibre DB and if not adding it to Calibre and
     then converting it to mobi if the mobi format is not already in the DB.
     """
+
     def __init__(self, watched_dir="~/temp", book_file=""):
+        self.CMD_CALIBRE_DB = '/usr/bin/calibredb'
+
         self._book = None
 
         self._watched_dir = None
@@ -66,15 +69,13 @@ class CalibreBookHandler(object):
         self.watched_dir = watched_dir
 
         self._processed_path = None
-        self.processed_path = re.sub(r'in-books', 'processed', self.watched_dir)
+        self.processed_path = self.watched_dir.replace('in-books', 'processed')
 
         self._books = None
         self.books = self.get_all_db_books()
 
         self._abs_path = None
         self.book_file = self.abs_path = book_file
-
-        # self.abs_path = os.path.abspath(os.path.join(self.watched_dir, self.book_file))
 
     @property
     def book_file(self):
@@ -116,15 +117,14 @@ class CalibreBookHandler(object):
     def watched_dir(self, in_dir):
         self._watched_dir = in_dir
 
-    @staticmethod
-    def add_book(in_file=""):
+    def add_book(self, in_file=""):
         """
         Add the named book to Calibre
         :param in_file: The name of the file containing the book to add
         :return: A book_entry tuple with the added book Calibre id on success or id set to -1 and error to an
         error message on failure
         """
-        command = ['/usr/bin/calibredb', 'add', in_file]
+        command = [self.CMD_CALIBRE_DB, 'add', in_file]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         # log_it("debug", __name__, repr(result))
@@ -138,8 +138,7 @@ class CalibreBookHandler(object):
 
         return book_entry(b_id, "", None, Result.PROCESSED)
 
-    @staticmethod
-    def get_book_formats(book_id, book_title=""):
+    def get_book_formats(self, book_id, book_title=""):
         """
         Retrieve a list of formats in the Calibre DB for the given book title
 
@@ -147,7 +146,7 @@ class CalibreBookHandler(object):
         :param book_title: The name of the file containing the book in the format to add
         :return: A list of strings representing the book formats present in the DB
         """
-        command_all = ['/usr/bin/calibredb', 'list', '-s', book_title, "-f", "formats"]
+        command_all = [self.CMD_CALIBRE_DB, 'list', '-s', book_title, "-f", "formats"]
         result_raw = run(command_all, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         matched_book = ""
@@ -171,8 +170,7 @@ class CalibreBookHandler(object):
 
         return [re.sub(r'^\.', '', fmt) for fmt in re.findall(r'\.[a-z]+\b', matched_book)]
 
-    @staticmethod
-    def add_format(calibre_id="", in_file="", in_result=Result.PROCESSING):
+    def add_format(self, calibre_id="", in_file="", in_result=Result.PROCESSING):
         """
         Add the named book format to Calibre
 
@@ -186,7 +184,7 @@ class CalibreBookHandler(object):
         if in_result == Result.FORMAT_IN_DB:
             return book_entry(calibre_id, "", None, Result.FORMAT_IN_DB)
 
-        command = ['/usr/bin/calibredb', 'add_format', str(calibre_id), in_file.strip()]
+        command = [self.CMD_CALIBRE_DB, 'add_format', str(calibre_id), in_file.strip()]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         if result.returncode != 0:
@@ -195,9 +193,8 @@ class CalibreBookHandler(object):
         os.remove(in_file)
         return book_entry(calibre_id, "", None, Result.PROCESSED)
 
-    @staticmethod
-    def search_db(in_str=""):
-        command = ['/usr/bin/calibredb', 'search', in_str]
+    def search_db(self, in_str=""):
+        command = [self.CMD_CALIBRE_DB, 'search', in_str]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         log_it(level="info", text=f"{result.returncode}, {result.stdout}, {result.stderr}")
@@ -269,9 +266,24 @@ class CalibreBookHandler(object):
         return book_entry(id=0, title=info.title, author=info.author, error=Result.BOOK_NOT_FOUND)
 
     @staticmethod
-    def db_entries_to_dict(in_entries=None):
-        """
+    def resolve_book_entry_parts(in_entry):
+        id_str = next(iter(re.findall(r'^\d+ +', in_entry)), "")
 
+        if id_str:
+            in_entry = in_entry[len(id_str):]
+
+        entry_parts = re.split(r'  +', in_entry)
+        entry_parts = [id_str.strip()] + entry_parts if id_str else entry_parts
+
+        if len(entry_parts) < 3 and re.search(r'[\w;,&]+$', in_entry):
+            entry_parts.append(entry_parts[-1])
+            entry_parts[-2] = ""
+
+        return entry_parts
+
+    def db_entries_to_dict(self, in_entries=None) -> []:
+        """
+        Convert incoming entries into a list of dictionaries.
         :param in_entries: A list of strings representing entries in the DB: id, title, author
         :return: A list of dictionaries (id, title, author) that match `search_str`
         """
@@ -288,19 +300,7 @@ class CalibreBookHandler(object):
 
         b_ix = 0
         for w_entry in work_entries:
-            id_str = next(iter(re.findall(r'^\d+ +', w_entry)), "")
-
-            if id_str:
-                w_entry = w_entry[len(id_str):]
-
-            entry_parts = re.split(r'  +', w_entry)
-            entry_parts = [id_str.strip()] + entry_parts if id_str else entry_parts
-
-            if len(entry_parts) < 3 and re.search(r'[\w;,&]+$', w_entry):
-                entry_parts.append(entry_parts[-1])
-                entry_parts[-2] = ""
-
-            book = dict(zip(keys, entry_parts))
+            book = dict(zip(keys, self.resolve_book_entry_parts(w_entry)))
 
             if not book:
                 continue
@@ -348,7 +348,7 @@ class CalibreBookHandler(object):
         return work_title, ""
 
     def get_all_db_books(self):
-        command_all = ['/usr/bin/calibredb', 'list']
+        command_all = [self.CMD_CALIBRE_DB, 'list']
         result_all = run(command_all, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         return self.db_entries_to_dict(result_all.stdout.split("\n"))
@@ -476,7 +476,7 @@ class CalibreBookHandler(object):
         working_title = working_info.title if working_info.title else working_title
 
         return book_entry(id=-1,
-                          title=re.sub(r'[(].*[)] *$', "", working_title).strip(),
+                          title=re.sub(r'[(].*\) *$', "", working_title).strip(),
                           author=working_info.author or working_author,
                           error=Result.PROCESSING)
 
@@ -597,7 +597,6 @@ class CalibreBookHandler(object):
         out_files = list()
         for curr_dir, sub_dirs, files in os.walk(in_dir):
             out_files += self._relative_path(curr_dir, files)
-            # out_files += self._full_path(curr_dir, files) + [curr_dir] + self._full_path(curr_dir, sub_dirs)
 
         return out_files
 
