@@ -1,7 +1,7 @@
 import argparse
 import os
 import re
-from collections import namedtuple
+from typing import NamedTuple
 from enum import auto, Enum
 from subprocess import PIPE, run
 
@@ -11,7 +11,28 @@ import dbusnotify
 __version__ = '0.0.3'
 
 
-book_entry = namedtuple("book_entry", "id title author error")
+class Result(Enum):
+    PROCESSING = auto()
+    FILE_DOES_NOT_EXIST = auto()
+    NO_EXTENSION = auto()
+    CANNOT_EXTRACT_TITLE = auto()
+    TITLE_EMPTY = auto()
+    BOOK_NOT_FOUND = auto()
+    UNABLE_TO_ADD_BOOK = auto()
+    CONVERSION_FAILED = auto()
+    CONVERSION_ABANDONED_PDF = auto()
+    CONVERSION_SUCCESSFUL = auto()
+    FORMAT_IN_DB = auto()
+    UNABLE_TO_ADD_FORMAT = auto()
+    PROCESSED = auto()
+    UNKNOWN = auto()
+
+
+class BookEntry(NamedTuple):
+    id: int
+    title: str
+    author: str
+    error: Result
 
 
 HOME_DIR = os.path.expanduser("~")
@@ -32,23 +53,6 @@ def log_it(level='info', src_name=None, text=None):
         log_writer.warning(text)
     else:
         log_writer.debug(text)
-
-
-class Result(Enum):
-    PROCESSING = auto()
-    FILE_DOES_NOT_EXIST = auto()
-    NO_EXTENSION = auto()
-    CANNOT_EXTRACT_TITLE = auto()
-    TITLE_EMPTY = auto()
-    BOOK_NOT_FOUND = auto()
-    UNABLE_TO_ADD_BOOK = auto()
-    CONVERSION_FAILED = auto()
-    CONVERSION_ABANDONED_PDF = auto()
-    CONVERSION_SUCCESSFUL = auto()
-    FORMAT_IN_DB = auto()
-    UNABLE_TO_ADD_FORMAT = auto()
-    PROCESSED = auto()
-    UNKNOWN = auto()
 
 
 class CalibreBookHandler(object):
@@ -121,7 +125,7 @@ class CalibreBookHandler(object):
         """
         Add the named book to Calibre
         :param in_file: The name of the file containing the book to add
-        :return: A book_entry tuple with the added book Calibre id on success or id set to -1 and error to an
+        :return: A BookEntry named tuple with the added book Calibre id on success or id set to -1 and error to an
         error message on failure
         """
         command = [self.CMD_CALIBRE_DB, 'add', in_file]
@@ -132,11 +136,11 @@ class CalibreBookHandler(object):
         wanted_str = "Added book ids: "
 
         if wanted_str not in result.stdout:
-            return book_entry(-1, "", None, Result.UNABLE_TO_ADD_BOOK)
+            return BookEntry(-1, "", "", Result.UNABLE_TO_ADD_BOOK)
 
         b_id = int(result.stdout.split(wanted_str)[-1])
 
-        return book_entry(b_id, "", None, Result.PROCESSED)
+        return BookEntry(b_id, "", "", Result.PROCESSED)
 
     def get_book_formats(self, book_id, book_title=""):
         """
@@ -178,20 +182,20 @@ class CalibreBookHandler(object):
         :param in_file: The name of the file containing the book in the format to add or Result.FORMAT_IN_DB if the
         desired format is already present
         :param in_result: The result of the last operation (a member of Result class)
-        :return: A book_entry tuple with the added book Calibre id on success or id set to -1 and error to an
+        :return: A BookEntry named tuple with the added book Calibre id on success or id set to -1 and error to an
         error message on failure
         """
         if in_result == Result.FORMAT_IN_DB:
-            return book_entry(calibre_id, "", None, Result.FORMAT_IN_DB)
+            return BookEntry(int(calibre_id), "", "", Result.FORMAT_IN_DB)
 
         command = [self.CMD_CALIBRE_DB, 'add_format', str(calibre_id), in_file.strip()]
         result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
 
         if result.returncode != 0:
-            return book_entry(-1, "", None, Result.UNABLE_TO_ADD_FORMAT)
+            return BookEntry(-1, "", "", Result.UNABLE_TO_ADD_FORMAT)
 
         os.remove(in_file)
-        return book_entry(calibre_id, "", None, Result.PROCESSED)
+        return BookEntry(int(calibre_id), "", "", Result.PROCESSED)
 
     def search_db(self, in_str=""):
         command = [self.CMD_CALIBRE_DB, 'search', in_str]
@@ -233,7 +237,7 @@ class CalibreBookHandler(object):
             (Result.CONVERSION_FAILED, "")
 
     def matching_book(self, info=None):
-        default_ret = book_entry(id=-1, title="", author="", error="")
+        default_ret = BookEntry(id=-1, title="", author="", error=Result.UNKNOWN)
 
         if not info.title:
             return default_ret
@@ -258,12 +262,12 @@ class CalibreBookHandler(object):
 
         for book in self.books:
             if test_title_author_sets(book, info):
-                return book_entry(id=int(book.get('id', '')),
-                                  title=book.get('title', ''),
-                                  author=book.get('author', ''),
-                                  error=Result.PROCESSING)
+                return BookEntry(id=int(book.get('id', -1)),
+                                 title=book.get('title', ''),
+                                 author=book.get('author', ''),
+                                 error=Result.PROCESSING)
 
-        return book_entry(id=0, title=info.title, author=info.author, error=Result.BOOK_NOT_FOUND)
+        return BookEntry(id=0, title=info.title, author=info.author, error=Result.BOOK_NOT_FOUND)
 
     @staticmethod
     def resolve_book_entry_parts(in_entry):
@@ -385,7 +389,7 @@ class CalibreBookHandler(object):
         return False
 
     def extract_title_if_hyphen(self, working_title=""):
-        default_ret = book_entry(id=-1, title=working_title, author="", error=Result.TITLE_EMPTY)
+        default_ret = BookEntry(id=-1, title=working_title, author="", error=Result.TITLE_EMPTY)
         if " - " not in working_title:
             return default_ret
 
@@ -404,8 +408,8 @@ class CalibreBookHandler(object):
             for db_bk in db_poss_title:
                 db_author = db_bk.get("author", None)
                 if self.is_subset(work_author, db_author) or self.is_subset(db_author, work_title):
-                    return book_entry(
-                        id=db_bk.get("id", ""),
+                    return BookEntry(
+                        id=int(db_bk.get("id", -1)),
                         title=db_bk.get("title", ""),
                         author=db_bk.get("author", None),
                         error=Result.PROCESSING
@@ -414,14 +418,14 @@ class CalibreBookHandler(object):
         db_poss_author = [dbb for dbb in self.books if self.is_subset(work_title, dbb.get("author", None))]
         for db_bk in db_poss_author:
             if self.is_subset(work_author, db_bk.get("title", None)):
-                return book_entry(
-                    id=db_bk.get("id", ""),
+                return BookEntry(
+                    id=int(db_bk.get("id", -1)),
                     title=db_bk.get("title", ""),
                     author=db_bk.get("author", ""),
                     error=Result.PROCESSING
                 )
 
-        return book_entry(id=-1, title=work_title or working_title, author=work_author, error=Result.PROCESSING)
+        return BookEntry(id=-1, title=work_title or working_title, author=work_author, error=Result.PROCESSING)
 
     @staticmethod
     def remove_author(in_work_str, in_author=None):
@@ -450,10 +454,10 @@ class CalibreBookHandler(object):
         Expect the title to be the first part, which  may be followed by " - " , followed by {author},m
         or " by {author}" or "({author})", and optionally, e.g. by " (z-library ...)"
         :param working_title: A string from which to extract the name of the book
-        :return: A book_entry with the title of the book and error set to Result.Processing or an empty title and
+        :return: A BookEntry with the title of the book and error set to Result.Processing or an empty title and
         error set to Result.TITLE_EMPTY on failure
         """
-        default_return = book_entry(id=-1, title="", author="", error=Result.TITLE_EMPTY)
+        default_return = BookEntry(id=-1, title="", author="", error=Result.TITLE_EMPTY)
         working_title, working_author = self.remove_series_from_title(working_title)
 
         if not working_title:
@@ -467,18 +471,18 @@ class CalibreBookHandler(object):
         if " by " in working_title:
             splitter_str = " by "
             splitter_ix = working_title.rfind(splitter_str)
-            return book_entry(id=-1,
-                              title=working_title[: splitter_ix].strip(),
-                              author=working_title[splitter_ix + len(splitter_str):].strip(),
-                              error=Result.PROCESSING)
+            return BookEntry(id=-1,
+                             title=working_title[: splitter_ix].strip(),
+                             author=working_title[splitter_ix + len(splitter_str):].strip(),
+                             error=Result.PROCESSING)
 
         working_info = self.extract_title_if_hyphen(working_title)
         working_title = working_info.title if working_info.title else working_title
 
-        return book_entry(id=-1,
-                          title=re.sub(r'[(].*\) *$', "", working_title).strip(),
-                          author=working_info.author or working_author,
-                          error=Result.PROCESSING)
+        return BookEntry(id=-1,
+                         title=re.sub(r'[(].*\) *$', "", working_title).strip(),
+                         author=working_info.author or working_author,
+                         error=Result.PROCESSING)
 
     def get_file_base_name_and_extension(self, file_name=""):
         file_name = file_name or self.book_file
@@ -564,7 +568,10 @@ class CalibreBookHandler(object):
                 self._notify(Result.UNABLE_TO_ADD_BOOK)
                 return 0
 
-            list_entry = book_entry(id=res_entry.id, title=list_entry.title, author=list_entry.author, error="")
+            list_entry = BookEntry(id=res_entry.id,
+                                   title=list_entry.title,
+                                   author=list_entry.author,
+                                   error=Result.UNKNOWN)
 
         # Try converting the book (to mobi by default):
         target_format = "mobi"
@@ -581,7 +588,7 @@ class CalibreBookHandler(object):
             return 0
 
         # Add the new format to the book in Calibre:
-        res_entry = self.add_format(list_entry.id, out_file)
+        res_entry = self.add_format(str(list_entry.id), out_file)
 
         self._notify(res_entry.error)
 
