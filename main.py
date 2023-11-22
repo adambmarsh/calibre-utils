@@ -45,14 +45,13 @@ def log_it(level='info', src_name=None, text=None):
     logger_name = src_name if src_name else __name__
     log_writer = logging.getLogger(logger_name)
 
-    if level == 'info':
-        log_writer.info(text)
-    elif level == 'error':
-        log_writer.error(text)
-    elif level == 'warning':
-        log_writer.warning(text)
-    else:
-        log_writer.debug(text)
+    do_log = {
+        "info": log_writer.info,
+        "error": log_writer.error,
+        "warning": log_writer.warning,
+    }
+
+    do_log.get(level, log_writer.debug)(text)
 
 
 class CalibreBookHandler(object):
