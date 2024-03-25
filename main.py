@@ -1,6 +1,12 @@
+"""
+This module includes code to add books to Calibre DB.
+"""
 import argparse
 import os
+import sys
 import re
+import logging
+
 from typing import NamedTuple
 from enum import auto, Enum
 from subprocess import PIPE, run
@@ -12,6 +18,9 @@ __version__ = '0.0.4'
 
 
 class Result(Enum):
+    """
+    This class represents an enumeration of possible result values.
+    """
     PROCESSING = auto()
     FILE_DOES_NOT_EXIST = auto()
     NO_EXTENSION = auto()
@@ -29,6 +38,9 @@ class Result(Enum):
 
 
 class BookEntry(NamedTuple):
+    """
+    This class represents a Calibre book entry.
+    """
     id: int
     title: str
     author: str
@@ -39,8 +51,13 @@ HOME_DIR = os.path.expanduser("~")
 
 
 def log_it(level='info', src_name=None, text=None):
-    import logging
-
+    """
+    Logger function
+    :param level: String specifying the log level
+    :param src_name: String containing the name of the logging module
+    :param text: A string containing the log message
+    :return: void
+    """
     logging.basicConfig(level=logging.DEBUG)
     logger_name = src_name if src_name else __name__
     log_writer = logging.getLogger(logger_name)
@@ -54,7 +71,7 @@ def log_it(level='info', src_name=None, text=None):
     do_log.get(level, log_writer.debug)(text)
 
 
-class CalibreBookHandler(object):
+class CalibreBookHandler():
     """
     This class is dedicated to processing one book file at a time.
     Processing involves picking up the file from the designated directory,
@@ -63,7 +80,7 @@ class CalibreBookHandler(object):
     """
 
     def __init__(self, watched_dir="~/temp", book_file=""):
-        self.CMD_CALIBRE_DB = '/usr/bin/calibredb'
+        self.cmd_calibre_db = '/usr/bin/calibredb'
 
         self._book = None
 
@@ -81,7 +98,7 @@ class CalibreBookHandler(object):
         self.book_file = self.abs_path = book_file
 
     @property
-    def book_file(self):
+    def book_file(self):  # pylint: disable=missing-function-docstring
         return self._book_file
 
     @book_file.setter
@@ -89,7 +106,7 @@ class CalibreBookHandler(object):
         self._book_file = in_book
 
     @property
-    def abs_path(self):
+    def abs_path(self):  # pylint: disable=missing-function-docstring
         return self._abs_path
 
     @abs_path.setter
@@ -97,7 +114,7 @@ class CalibreBookHandler(object):
         self._abs_path = os.path.abspath(os.path.join(self.watched_dir, in_file))
 
     @property
-    def processed_path(self):
+    def processed_path(self):  # pylint: disable=missing-function-docstring
         return self._processed_path
 
     @processed_path.setter
@@ -105,7 +122,7 @@ class CalibreBookHandler(object):
         self._processed_path = in_path
 
     @property
-    def books(self):
+    def books(self):  # pylint: disable=missing-function-docstring
         return self._books
 
     @books.setter
@@ -113,7 +130,7 @@ class CalibreBookHandler(object):
         self._books = in_books
 
     @property
-    def watched_dir(self):
+    def watched_dir(self):  # pylint: disable=missing-function-docstring
         return self._watched_dir
 
     @watched_dir.setter
@@ -127,8 +144,8 @@ class CalibreBookHandler(object):
         :return: A BookEntry named tuple with the added book Calibre id on success or id set to -1 and error to an
         error message on failure
         """
-        command = [self.CMD_CALIBRE_DB, 'add', in_file]
-        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        command = [self.cmd_calibre_db, 'add', in_file]
+        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True, check=False)
 
         # log_it("debug", __name__, repr(result))
 
@@ -149,8 +166,8 @@ class CalibreBookHandler(object):
         :param book_title: The name of the file containing the book in the format to add
         :return: A list of strings representing the book formats present in the DB
         """
-        command_all = [self.CMD_CALIBRE_DB, 'list', '-s', book_title, "-f", "formats"]
-        result_raw = run(command_all, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        command_all = [self.cmd_calibre_db, 'list', '-s', book_title, "-f", "formats"]
+        result_raw = run(command_all, stdout=PIPE, stderr=PIPE, universal_newlines=True, check=False)
 
         matched_book = ""
 
@@ -187,8 +204,8 @@ class CalibreBookHandler(object):
         if in_result == Result.FORMAT_IN_DB:
             return BookEntry(int(calibre_id), "", "", Result.FORMAT_IN_DB)
 
-        command = [self.CMD_CALIBRE_DB, 'add_format', str(calibre_id), in_file.strip()]
-        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        command = [self.cmd_calibre_db, 'add_format', str(calibre_id), in_file.strip()]
+        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True, check=False)
 
         if result.returncode != 0:
             return BookEntry(-1, "", "", Result.UNABLE_TO_ADD_FORMAT)
@@ -197,8 +214,13 @@ class CalibreBookHandler(object):
         return BookEntry(int(calibre_id), "", "", Result.PROCESSED)
 
     def search_db(self, in_str=""):
-        command = [self.CMD_CALIBRE_DB, 'search', in_str]
-        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        """
+        This method implements a search in Calibre DB.
+        :param in_str: String to search for.
+        :return: A search result object
+        """
+        command = [self.cmd_calibre_db, 'search', in_str]
+        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True, check=False)
 
         log_it(level="info", text=f"{result.returncode}, {result.stdout}, {result.stderr}")
 
@@ -215,7 +237,7 @@ class CalibreBookHandler(object):
         an error code from the Result class and conversion output ("")
         """
         org_book = self.book_file or org_book
-        existing_formats = list() if not existing_formats else existing_formats
+        existing_formats = [] if not existing_formats else existing_formats
 
         if org_book.endswith("pdf"):
             return Result.CONVERSION_ABANDONED_PDF, ""
@@ -226,16 +248,23 @@ class CalibreBookHandler(object):
         command = ['/usr/bin/ebook-convert',
                    os.path.abspath(os.path.join(self.watched_dir, org_book)),
                    os.path.abspath(os.path.join(HOME_DIR, "temp", re.sub(r'epub$', dest_format, org_book)))]
-        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True, check=False)
 
         wanted_str = "Output saved to "
-        conversion_output = next(iter([out_line for out_line in result.stdout.split("\n") if wanted_str in out_line]),
-                                 "")
+        conversion_output = next(
+            iter([out_line for out_line in result.stdout.split("\n") if wanted_str in out_line]),
+            "")
 
-        return (Result.CONVERSION_SUCCESSFUL, conversion_output[len(wanted_str):].strip()) if conversion_output else \
-            (Result.CONVERSION_FAILED, "")
+        return (Result.CONVERSION_SUCCESSFUL,conversion_output[len(wanted_str):].strip()) if conversion_output \
+            else (Result.CONVERSION_FAILED, "")
 
     def matching_book(self, info=None):
+        """
+        This method tries to retrieve from Calibre DB a book matching the supplied info.
+        :param info: Book information to match
+        :return: An instance of BookEntry that contains the details of the matching book on success, otherwise
+        it contains sdefault info (an empty BookEntry)
+        """
         default_ret = BookEntry(id=-1, title="", author="", error=Result.UNKNOWN)
 
         if not info.title:
@@ -270,6 +299,11 @@ class CalibreBookHandler(object):
 
     @staticmethod
     def resolve_book_entry_parts(in_entry):
+        """
+        Break up a string representing a book entry into its constituent parts (ID string, etc.)
+        :param in_entry: A string to break up
+        :return: A list of strings
+        """
         id_str = next(iter(re.findall(r'^\d+ +', in_entry)), "")
 
         if id_str:
@@ -291,14 +325,14 @@ class CalibreBookHandler(object):
         :return: A list of dictionaries (id, title, author) that match `search_str`
         """
         if not in_entries:
-            return list()
+            return []
 
         work_entries = [ent for ent in in_entries if ent and not re.search(r'^(Fail|id +title)', ent)]
 
         if not work_entries:
             return in_entries
 
-        entries = list()
+        entries = []
         keys = ['id', 'title', 'author']
 
         b_ix = 0
@@ -325,16 +359,22 @@ class CalibreBookHandler(object):
         return entries
 
     def remove_series_from_title(self, work_title=""):
+        """
+        This method removes a book series identifier from the book title.
+        :param work_title: A string containing the book title
+        :return: A string containing the book title without the series identifier on success, otherwise
+        an empty string
+        """
         if not work_title:
             return "", ""
 
-        rx_pattern = re.compile('[\[(][a-zA-Z0-9 -]+[\])]')  # NOQA
+        rx_pattern = re.compile(r'[\[(][a-zA-Z0-9 -]+[\])]')  # NOQA
 
         matches = re.finditer(rx_pattern, work_title)
         if not matches:
             return work_title, ""
 
-        poss_titles = poss_authors = list()
+        poss_titles = poss_authors = []
         for mt in matches:
             found_str = work_title[mt.start():mt.end()].strip("()[]")
             poss_titles = [dbb for dbb in self.books if self.is_subset(found_str, dbb.get('title', ''))]
@@ -351,13 +391,23 @@ class CalibreBookHandler(object):
         return work_title, ""
 
     def get_all_db_books(self):
-        command_all = [self.CMD_CALIBRE_DB, 'list']
-        result_all = run(command_all, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        """
+        This method retrieves all the books present in the Calibre DB.
+        :return: A dictionary containing the retrieved book info
+        """
+        command_all = [self.cmd_calibre_db, 'list']
+        result_all = run(command_all, stdout=PIPE, stderr=PIPE, universal_newlines=True, check=False)
 
         return self.db_entries_to_dict(result_all.stdout.split("\n"))
 
     @staticmethod
     def is_subset(in_a, in_b):
+        """
+        This method checks if one of the two received strings is contained in the other.
+        :param in_a: A string to check
+        :param in_b: A string to check
+        :return: True if one of the strings is cotained in the other, otherwise Fals
+        """
         set_a = set(re.split(r'[:_. ,]+', in_a))
         set_b = set(re.split(r'[:_. ,]+', in_b))
 
@@ -388,6 +438,11 @@ class CalibreBookHandler(object):
         return False
 
     def extract_title_if_hyphen(self, working_title=""):
+        """
+        This method extracts the book tile from a string if that string contains a hyphen
+        :param working_title: A string containing the title
+        :return: An instance of BookEntry containing the extracted title
+        """
         default_ret = BookEntry(id=-1, title=working_title, author="", error=Result.TITLE_EMPTY)
         if " - " not in working_title:
             return default_ret
@@ -428,6 +483,12 @@ class CalibreBookHandler(object):
 
     @staticmethod
     def remove_author(in_work_str, in_author=None):
+        """
+        This method removed the author from a string
+        :param in_work_str: String from which to remove author
+        :param in_author: String containing the author
+        :return: A string without the author's name
+        """
         if not in_author:
             return in_work_str
 
@@ -441,7 +502,7 @@ class CalibreBookHandler(object):
         out_str = in_work_str
 
         for part in author_parts:
-            pat = re.compile(f"({part}|{part}[,. ])")
+            pat = re.compile(f"({part}|{part}[,. ])") # pylint: disable=invalid-character-backspace
             out_str = re.sub(pat, '', in_work_str)
             in_work_str = out_str
 
@@ -484,6 +545,12 @@ class CalibreBookHandler(object):
                          error=Result.PROCESSING)
 
     def get_file_base_name_and_extension(self, file_name=""):
+        """
+        Break up a file name into the base name and extension
+        :param file_name: A string to break up
+        :return: A tuple containing the file name and extension on success, otherwise a tuple where both
+        elements contain the original file name
+        """
         file_name = file_name or self.book_file
 
         matched = re.search(r'\.[a-zA-Z0-9]+$', file_name)
@@ -515,7 +582,8 @@ class CalibreBookHandler(object):
             Result.UNABLE_TO_ADD_BOOK: f"Unable to add book: received file {repr(self.book_file)}",
             Result.CONVERSION_FAILED: f"Unable to convert {repr(self.book_file)} to mobi, exiting.",
             Result.CONVERSION_SUCCESSFUL: f"Converted {repr(self.book_file)} to mobi",
-            Result.FORMAT_IN_DB: f"{repr(self.book_file)} is in Calibre in mobi, moving it to {self.processed_path}",
+            Result.FORMAT_IN_DB:
+                f"{repr(self.book_file)} is in Calibre in mobi, moving it to {self.processed_path}",
             Result.UNABLE_TO_ADD_FORMAT: f"Unable to add format: received file {self.book_file}",
             Result.PROCESSED:
                 f"{repr(self.book_file)} is in Calibre and converted to mobi, moving it to {self.processed_path}",
@@ -532,6 +600,11 @@ class CalibreBookHandler(object):
         self._post_notification(summary, notify_text[code])
 
     def process_book(self, in_book=""):
+        """
+        This method processes a book by trying to add it to the Calibre DB.
+        :param in_book: Path to the book to process
+        :return: zero on failure, Calibre DB entry ID on success
+        """
         if in_book:
             self.book_file = in_book
             self.abs_path = in_book
@@ -597,11 +670,17 @@ class CalibreBookHandler(object):
         return [os.path.join(parent, child) if parent != self.watched_dir else child for child in children]
 
     def list_dir_files(self, in_dir=None):
+        """
+        This method obtains a list of file from the specified directory.
+        :param in_dir: Path to the directory
+        :return: A list of file names
+        """
         if not in_dir:
             in_dir = self.watched_dir
 
-        out_files = list()
+        out_files = []
         for curr_dir, sub_dirs, files in os.walk(in_dir):
+            _ = sub_dirs
             out_files += self._relative_path(curr_dir, files)
 
         return out_files
@@ -610,8 +689,8 @@ class CalibreBookHandler(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="This program processes files added to a directory watched by "
                                                  "inotify, adding the input file(s) to Calibre and, if necessary, "
-                                                 "converting  them to .mobi, then adding the .mobi format to Calibre "
-                                                 "as well. ")
+                                                 "converting  them to .mobi, then adding the .mobi format to "
+                                                 "Calibre as well. ")
     parser.add_argument("-d", "--directory", help="Full path to the watched directory.",
                         type=str,
                         dest='watched_dir',
@@ -634,4 +713,4 @@ if __name__ == '__main__':
 
         log_it(level="info", text=f"Processed file {file}, {count+1}/{len(target_files)}, with result {res}")
 
-    exit(0)
+    sys.exit(0)
