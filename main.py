@@ -71,7 +71,7 @@ def log_it(level='info', src_name=None, text=None):
     do_log.get(level, log_writer.debug)(text)
 
 
-class CalibreBookHandler():
+class CalibreBookHandler:
     """
     This class is dedicated to processing one book file at a time.
     Processing involves picking up the file from the designated directory,
@@ -255,7 +255,7 @@ class CalibreBookHandler():
             iter([out_line for out_line in result.stdout.split("\n") if wanted_str in out_line]),
             "")
 
-        return (Result.CONVERSION_SUCCESSFUL,conversion_output[len(wanted_str):].strip()) if conversion_output \
+        return (Result.CONVERSION_SUCCESSFUL, conversion_output[len(wanted_str):].strip()) if conversion_output \
             else (Result.CONVERSION_FAILED, "")
 
     def matching_book(self, info=None):
@@ -263,7 +263,7 @@ class CalibreBookHandler():
         This method tries to retrieve from Calibre DB a book matching the supplied info.
         :param info: Book information to match
         :return: An instance of BookEntry that contains the details of the matching book on success, otherwise
-        it contains sdefault info (an empty BookEntry)
+        it contains default info (an empty BookEntry)
         """
         default_ret = BookEntry(id=-1, title="", author="", error=Result.UNKNOWN)
 
@@ -406,7 +406,7 @@ class CalibreBookHandler():
         This method checks if one of the two received strings is contained in the other.
         :param in_a: A string to check
         :param in_b: A string to check
-        :return: True if one of the strings is cotained in the other, otherwise Fals
+        :return: True if one of the strings is contained in the other, otherwise False
         """
         set_a = set(re.split(r'[:_. ,]+', in_a))
         set_b = set(re.split(r'[:_. ,]+', in_b))
@@ -484,7 +484,7 @@ class CalibreBookHandler():
     @staticmethod
     def remove_author(in_work_str, in_author=None):
         """
-        This method removed the author from a string
+        This method removes the author from a string.
         :param in_work_str: String from which to remove author
         :param in_author: String containing the author
         :return: A string without the author's name
@@ -502,7 +502,7 @@ class CalibreBookHandler():
         out_str = in_work_str
 
         for part in author_parts:
-            pat = re.compile(f"({part}|{part}[,. ])") # pylint: disable=invalid-character-backspace
+            pat = re.compile(f"({part}|{part}[,. ])")  # pylint: disable=invalid-character-backspace
             out_str = re.sub(pat, '', in_work_str)
             in_work_str = out_str
 
