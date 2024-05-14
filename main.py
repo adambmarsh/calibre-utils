@@ -510,7 +510,7 @@ class CalibreBookHandler:
 
     def extract_title_author(self, working_title=""):
         """
-        Parse the received string to extract the title of the book (may be incomplete).
+        Parse the received string to extract the title of the book (maybe incomplete).
         Expect the title to be the first part, which  may be followed by " - " , followed by {author},m
         or " by {author}" or "({author})", and optionally, e.g. by " (z-library ...)"
         :param working_title: A string from which to extract the name of the book
