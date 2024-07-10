@@ -1,3 +1,6 @@
+[MASTER]
+init-hook='import sys; sys.path.append("/home/adam/.virtualenvs/calibre-utils/lib/python3.12/site-packages/")'
+
 [MAIN]
 
 # Analyse import fallback blocks. This can be used to support both Python 2 and
@@ -337,7 +340,7 @@ max-returns=10
 #indent-string='    '
 
 # Maximum number of characters on a single line.
-max-line-length=116
+max-line-length=118
 
 # Maximum number of lines in a module.
 max-module-lines=2000
