@@ -20,5 +20,5 @@ inotifywait -m -e moved_to "$target_dir" |
     while read -r dir op file;
     do         
         echo "dir=$dir op=$op file=$file"
-        source "$activate_path" && python "$python_pkg" -d "$dir" -f """$file""" > "$python_log" && deactivate
+        . "$activate_path" && python "$python_pkg" -d "$dir" -f """$file""" > "$python_log" && deactivate
     done &
