@@ -60,6 +60,10 @@ target/
 *.csv
 # *.json
 
+# uv
+uv.lock
+.python-version
+
 # Project specific
 .env*
 pylintrc
