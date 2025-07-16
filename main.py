@@ -7,14 +7,11 @@ import sys
 import re
 import logging
 
-from typing import NamedTuple
+from typing import NamedTuple, Any
 from enum import auto, Enum
 from subprocess import PIPE, run
 
 import dbusnotify
-
-
-__version__ = '0.0.5'
 
 
 class Result(Enum):
@@ -95,10 +92,11 @@ class CalibreBookHandler:
         self.books = self.get_all_db_books()
 
         self._abs_path = None
-        self.book_file = self.abs_path = book_file
+        self.book_file: str = book_file
+        self.abs_path: str = book_file
 
     @property
-    def book_file(self):  # pylint: disable=missing-function-docstring
+    def book_file(self) -> str:  # pylint: disable=missing-function-docstring
         return self._book_file
 
     @book_file.setter
@@ -110,11 +108,11 @@ class CalibreBookHandler:
         return self._abs_path
 
     @abs_path.setter
-    def abs_path(self, in_file):
+    def abs_path(self, in_file: str):
         self._abs_path = os.path.abspath(os.path.join(self.watched_dir, in_file))
 
     @property
-    def processed_path(self):  # pylint: disable=missing-function-docstring
+    def processed_path(self) -> str:  # pylint: disable=missing-function-docstring
         return self._processed_path
 
     @processed_path.setter
@@ -236,7 +234,7 @@ class CalibreBookHandler:
         :return: On success, Result.CONVERSION_SUCCESSFUL and path to conversion output, otherwise
         an error code from the Result class and conversion output ("")
         """
-        org_book = self.book_file or org_book
+        org_book: str = self.book_file or org_book
         existing_formats = [] if not existing_formats else existing_formats
 
         if org_book.endswith("pdf"):
@@ -318,14 +316,14 @@ class CalibreBookHandler:
 
         return entry_parts
 
-    def db_entries_to_dict(self, in_entries=None) -> []:
+    def db_entries_to_dict(self, in_entries=None) -> list[Any] | Any:
         """
         Convert incoming entries into a list of dictionaries.
         :param in_entries: A list of strings representing entries in the DB: id, title, author
         :return: A list of dictionaries (id, title, author) that match `search_str`
         """
         if not in_entries:
-            return []
+            return list[Any] | Any
 
         work_entries = [ent for ent in in_entries if ent and not re.search(r'^(Fail|id +title)', ent)]
 
@@ -569,8 +567,10 @@ class CalibreBookHandler:
             icon=icon_file,  # On Windows .ico is required, on Linux - .png
         )
 
-    def _notify(self, code=Result.UNKNOWN, alt_text=None):
+    def _notify(self, code=None, alt_text=None):
         summary = "calibre-utils"
+
+        code = Result.UNKNOWN if code is None else code
 
         notify_text = {
             Result.PROCESSING: f"inotify_calibre: Processing  file {repr(self.book_file)} ...",
