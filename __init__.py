@@ -3,7 +3,7 @@
 #
 ###############################################################################
 #
-# Copyright (C) 2022-2005 Adam Bukolt.
+# Copyright (C) 2022-2025 Adam Bukolt.
 # All Rights Reserved.
 #
 # This software and other materials contain proprietary information controlled
@@ -32,4 +32,3 @@
 
 
 """
-
